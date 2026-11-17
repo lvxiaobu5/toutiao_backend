@@ -2,4 +2,5 @@ aiomysql
 fastapi
 PyMySQL
 SQLAlchemy
+python-dotenv
 uvicorn
