@@ -12,6 +12,7 @@
 - 浏览历史记录写入、分页查看、单条删除和批量清空
 - 统一响应结构、参数校验和异常处理
 - MySQL 异步连接池与事务级数据库会话
+- Redis 异步缓存，支持新闻分类、列表、详情和相关推荐缓存
 - CORS 跨域支持与自动生成的 Swagger UI / ReDoc 文档
 
 ## 技术架构
@@ -19,12 +20,13 @@
 | 层级 | 目录 | 职责 |
 | --- | --- | --- |
 | 应用入口 | `main.py` | 创建 FastAPI 应用、注册中间件与路由 |
-| 配置层 | `config/` | 数据库引擎、异步 Session 与运行配置 |
+| 配置层 | `config/` | 数据库引擎、异步 Session、Redis 与运行配置 |
 | 路由层 | `routers/` | 定义 HTTP 接口、参数接收与依赖注入 |
 | 数据访问层 | `crud/` | 封装新闻、用户、收藏和历史记录的数据操作 |
 | 数据模型层 | `models/` | 定义 ORM 模型、外键、索引与约束 |
 | 数据契约层 | `schemas/` | 定义请求体、响应体和分页数据结构 |
 | 通用能力 | `utils/` | 认证、密码安全、统一响应与异常处理 |
+| 缓存能力 | `cache/` | Redis 缓存 Key、序列化和过期时间管理 |
 
 ## 技术栈
 
@@ -34,16 +36,20 @@
 - Pydantic 2.x
 - Passlib、bcrypt、cryptography
 - python-dotenv
+- Redis 7.x、redis-py asyncio
 
 ## 目录结构
 
 ```text
 toutiao_backend/
 ├── config/                 # 数据库连接与运行配置
+│   └── cache_conf.py       # Redis 异步客户端与缓存读写封装
+├── cache/                  # 新闻缓存 Key 与缓存策略
 ├── crud/                   # 数据访问与业务查询封装
 │   ├── favorite.py         # 收藏数据操作
 │   ├── history.py          # 浏览历史数据操作
 │   ├── news.py             # 新闻与分类数据操作
+│   ├── news_cache.py       # 新闻查询的缓存优先访问
 │   └── users.py            # 用户与 Token 数据操作
 ├── models/                 # SQLAlchemy ORM 模型
 ├── routers/                # FastAPI 路由模块
@@ -143,7 +149,12 @@ CREATE DATABASE news_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ASYNC_DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/news_app?charset=utf8mb4
 ```
 
-### 4. 启动服务
+### 4. 启动 Redis
+
+确保本地或部署环境中的 Redis 服务监听 `localhost:6379`。当前默认配置位于
+`config/cache_conf.py`，使用 Redis 的 0 号数据库；生产环境建议改为从环境变量读取连接信息。
+
+### 5. 启动服务
 
 ```powershell
 uvicorn main:app --reload
@@ -160,6 +171,8 @@ uvicorn main:app --reload
 - 用户密码采用 bcrypt 进行摘要存储，不保存明文密码。
 - 通过 FastAPI 依赖注入统一获取数据库会话和当前登录用户。
 - 新闻详情访问会更新阅读量，并返回同分类相关推荐。
+- 新闻分类、新闻列表、新闻详情和相关推荐优先从 Redis 读取，未命中时查询 MySQL 并回填缓存。
+- 缓存采用 JSON 序列化和 TTL：分类 7200 秒、列表及相关推荐 1800 秒、新闻详情 300 秒；Redis 不可用时查询方法会回退到数据库。
 - 收藏与浏览历史均以当前用户为数据隔离边界，避免跨用户读取或修改数据。
 - 请求参数由 Pydantic 和 FastAPI Query 约束校验，分页大小限制为 100。
 
